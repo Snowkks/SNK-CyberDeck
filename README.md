@@ -18,7 +18,8 @@ A toolbox of small Linux, networking and security tools, with a terminal UI laun
 
 Options: `--with-llm` (no prompt), `--no-llm`, `--model NAME`, `--help`.
 It creates `.venv`, installs `requirements.txt`, and makes `cyberdeck`
-executable. Re-running is safe.
+executable. Re-running is safe. On a terminal it shows a 4-step progress
+bar; when piped it prints plain step lines instead.
 
 For the LLM it will install Ollama only if you approve: the vendor script is
 downloaded to `.tmp/`, its sha256 printed, and it runs as root only after a

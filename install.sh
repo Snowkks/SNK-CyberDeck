@@ -13,6 +13,29 @@ info() { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# --- progress --------------------------------------------------------------
+TOTAL_STEPS=4
+STEP=0
+BAR_WIDTH=20
+
+step() {
+    STEP=$((STEP + 1))
+    label="$1"
+    if [ -t 1 ]; then
+        filled=$((STEP * BAR_WIDTH / TOTAL_STEPS))
+        bar=""
+        i=0
+        while [ "$i" -lt "$BAR_WIDTH" ]; do
+            if [ "$i" -lt "$filled" ]; then bar="${bar}#"; else bar="${bar}-"; fi
+            i=$((i + 1))
+        done
+        printf '[%s] %d/%d %s\n' "$bar" "$STEP" "$TOTAL_STEPS" "$label"
+    else
+        # Redirection (CI, logs): no bar, no escape codes.
+        printf '==> [%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$label"
+    fi
+}
+
 usage() {
     cat <<'EOF'
 Usage: ./install.sh [options]
@@ -49,6 +72,7 @@ while [ $# -gt 0 ]; do
 done
 
 # --- 1. Python -------------------------------------------------------------
+step "Python"
 command -v python3 >/dev/null 2>&1 || die "python3 not found"
 python3 - <<'PY' || die "Python 3.10 or newer is required"
 import sys
@@ -56,18 +80,22 @@ raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
 PY
 info "Python $(python3 -c 'import platform; print(platform.python_version())')"
 
-# --- 2. Virtualenv + dependencies -----------------------------------------
+# --- 2. Virtualenv ---------------------------------------------------------
+step "Virtual environment"
 if [ ! -x .venv/bin/python ]; then
     info "Creating .venv"
     python3 -m venv .venv || die "venv failed; install python3-venv (Debian/Ubuntu)"
+else
+    info ".venv already exists"
 fi
-
-info "Installing Python dependencies"
-./.venv/bin/pip install --quiet --upgrade pip
-./.venv/bin/pip install --quiet -r requirements.txt
 chmod +x cyberdeck
 
-# --- 3. Optional LLM ------------------------------------------------------
+# --- 3. Dependencies -------------------------------------------------------
+step "Python dependencies"
+./.venv/bin/pip install --quiet --upgrade pip
+./.venv/bin/pip install --quiet -r requirements.txt
+
+# --- 4. Optional LLM -------------------------------------------------------
 if [ -z "$LLM_CHOICE" ]; then
     if [ -t 0 ]; then
         printf 'Download the local LLM (Ollama + %s, about 1 GB)? [y/N] ' "$MODEL"
@@ -79,6 +107,12 @@ if [ -z "$LLM_CHOICE" ]; then
     else
         LLM_CHOICE=no
     fi
+fi
+
+if [ "$LLM_CHOICE" = yes ]; then
+    step "Local LLM ($MODEL)"
+else
+    step "Local LLM (skipped)"
 fi
 
 if [ "$LLM_CHOICE" = yes ]; then
@@ -113,7 +147,7 @@ if [ "$LLM_CHOICE" = yes ]; then
     fi
 fi
 
-# --- 4. Hints -------------------------------------------------------------
+# --- 5. Hints -------------------------------------------------------------
 if ! command -v tailscale >/dev/null 2>&1; then
     info "Tailscale not found: the web UI will only bind 127.0.0.1"
 fi
