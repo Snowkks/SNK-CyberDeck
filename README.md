@@ -2,6 +2,13 @@
 
 A toolbox of small Linux, networking and security tools, with a terminal UI launcher.
 
+## Requirements
+
+- Python >= 3.10 (Raspberry Pi OS Bookworm ships 3.11)
+- `ip` and `ss` from iproute2; `ping` from iputils-ping
+- `tailscale` only for the web UI
+- `ollama` optional, for AI explanations
+
 ## Setup
 
 ```sh
@@ -86,17 +93,6 @@ Notes:
 - A 1.5B model is often fluent and sometimes wrong; the checks stay the source
   of truth.
 
-## Tests
-
-```sh
-./.venv/bin/python -m unittest discover -s tests -t .
-```
-
-79 tests, ~26 s, offline-safe: command output is mocked and Ollama is a local
-stub server (`tests/stub_ollama.py`), so results do not depend on this
-machine's network, on `ping`/`ip` being installed, or on a model being
-present. Run them before trusting a change on the Pi.
-
 ## Display notes (Pi 5, 7" 1024x600 panel)
 
 The UI is written for the Linux console, not a desktop terminal:
@@ -111,4 +107,3 @@ The UI is written for the Linux console, not a desktop terminal:
   if `gpm` is installed and running; otherwise use the keyboard.
 - Over SSH, use `ssh -t` (the app needs a real terminal). Without `-t` it exits
   with "no terminal".
-# SNK-Cyberdeck
