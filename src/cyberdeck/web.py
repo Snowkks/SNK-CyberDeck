@@ -185,7 +185,7 @@ def build_report(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="30">
-<title>CyberDeck - Network Diagnostics</title>
+<title>SNCD - Network Diagnostics</title>
 <style>
   :root {{ color-scheme: dark; }}
   * {{ box-sizing: border-box; }}
@@ -276,7 +276,7 @@ def build_report(
 {raw_blocks}
   </div>
   {_ai_card(ai_text, ai_error)}
-  <footer>Snowk CyberDeck &middot; Network Diagnostics</footer>
+  <footer>SNCD &middot; Snowk CyberDeck &middot; Network Diagnostics</footer>
 </div>
 </body>
 </html>

@@ -1,6 +1,16 @@
-# Snowk CyberDeck
+# SNCD (Snowk CyberDeck)
 
-A toolbox of small Linux, networking and security tools, with a terminal UI launcher.
+Version 0.2.0 — a toolbox of small Linux, networking and security tools, with a
+terminal UI launcher.
+
+## What's in 0.2
+
+- Launcher with Network Diagnostics and a Tailscale on/off toggle.
+- Local TUI: 7 read-only checks, detail pane, host ping/DNS test.
+- Port Check: TCP handshake against one host/port.
+- Tailnet web report with system info, raw command output and an optional
+  AI explanation from a local Ollama model.
+- `install.sh` with an optional LLM download and a progress bar.
 
 ## Requirements
 

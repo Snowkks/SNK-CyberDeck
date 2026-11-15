@@ -10,8 +10,8 @@ from cyberdeck.screens import SubmenuScreen, TailnetScreen
 class CyberDeckApp(App):
     """Main menu. Each ListItem id maps to one action."""
 
-    TITLE = "Snowk CyberDeck"
-    SUB_TITLE = "v0.1.0"
+    TITLE = "SNCD"
+    SUB_TITLE = "v0.2.0"
 
     # ansi-dark only uses the 16 ANSI colours, which is all the Linux
     # console on the Pi's 7" panel can display.
