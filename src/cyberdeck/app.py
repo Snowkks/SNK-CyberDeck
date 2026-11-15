@@ -3,7 +3,7 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Label, ListItem, ListView
 
-from cyberdeck.screens import DiagnosticsScreen
+from cyberdeck.screens import SubmenuScreen
 
 
 class CyberDeckApp(App):
@@ -45,6 +45,6 @@ class CyberDeckApp(App):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.item.id == "network-diagnostics":
-            self.push_screen(DiagnosticsScreen())
+            self.push_screen(SubmenuScreen())
         elif event.item.id == "quit":
             self.exit()

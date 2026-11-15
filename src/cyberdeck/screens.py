@@ -14,7 +14,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Static
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, ListItem, ListView, Static
 
 from cyberdeck import web
 from cyberdeck.diagnostics import (
@@ -24,6 +24,7 @@ from cyberdeck.diagnostics import (
     validate_host,
 )
 from cyberdeck.llm import LLMError, is_available, stream_explanation
+from cyberdeck.ports import check_port, validate_port
 
 
 def _status_text(ok: bool) -> Text:
@@ -275,6 +276,111 @@ class HostTestScreen(Screen):
 
     def _update_pane(self, index: int) -> None:
         self.query_one("#host-detail", Static).update(_detail_for(self._results, index))
+
+
+class SubmenuScreen(Screen):
+    """The Network Diagnostics submenu between the launcher and the tools."""
+
+    BINDINGS = [("escape", "dismiss_screen", "Back")]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield ListView(
+            ListItem(Label("Local TUI"), id="local-tui"),
+            ListItem(Label("Port Check"), id="port-check"),
+            ListItem(Label("Start Tailnet Web UI"), id="web-ui"),
+            ListItem(Label("Back"), id="back"),
+            id="diagnostics-menu",
+        )
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#diagnostics-menu", ListView).focus()
+
+    def action_dismiss_screen(self) -> None:
+        self.dismiss()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.item.id == "local-tui":
+            self.app.push_screen(DiagnosticsScreen())
+        elif event.item.id == "port-check":
+            self.app.push_screen(PortCheckScreen())
+        elif event.item.id == "web-ui":
+            self.app.push_screen(WebUIScreen())
+        elif event.item.id == "back":
+            self.dismiss()
+
+
+class PortCheckScreen(Screen):
+    """One TCP port check: host + port, then the result."""
+
+    BINDINGS = [("escape", "dismiss_screen", "Back")]
+
+    CSS = """
+    #port-host, #port-number {
+        margin: 0 0 1 0;
+    }
+    #port-verdict {
+        padding: 0 1;
+    }
+    #port-detail {
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._generation = 0
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Input(placeholder="Host (e.g. 192.168.1.10)", id="port-host")
+        yield Input(placeholder="Port (1-65535)", id="port-number")
+        yield Static("Enter a host and a port, then press Enter.", id="port-verdict", markup=False)
+        yield Static("", id="port-detail", markup=False)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#port-host", Input).focus()
+
+    def on_unmount(self) -> None:
+        self.workers.cancel_group(self, "port")
+
+    def action_dismiss_screen(self) -> None:
+        self.dismiss()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        host = self.query_one("#port-host", Input).value.strip()
+        port = self.query_one("#port-number", Input).value.strip()
+
+        error = validate_host(host) or validate_port(port)
+        if error:
+            self.query_one("#port-verdict", Static).update(f"Invalid: {error}")
+            self.query_one("#port-detail", Static).update("")
+            return
+
+        self._generation += 1
+        self.query_one("#port-verdict", Static).update(f"Connecting to {host}:{port}...")
+        self.query_one("#port-detail", Static).update("")
+        self.run_worker(
+            partial(self._run, self._generation, host, port),
+            thread=True,
+            exclusive=True,
+            group="port",
+            exit_on_error=False,
+        )
+
+    def _run(self, generation: int, host: str, port: str) -> None:
+        result = check_port(host, port)
+        self.app.call_from_thread(self._show_result, generation, result)
+
+    def _show_result(self, generation: int, result: CheckResult) -> None:
+        if generation != self._generation or not self.is_attached:
+            return
+        verdict = Text("OPEN", style="ansi_green") if result.ok else Text(result.summary.upper(), style="ansi_red")
+        verdict.append(f"  {result.name}", style="default")
+        self.query_one("#port-verdict", Static).update(verdict)
+        self.query_one("#port-detail", Static).update(result.detail)
 
 
 class WebUIScreen(Screen):

@@ -39,14 +39,10 @@ python3 -m venv .venv          # needs Python >= 3.10
 ```
 
 - `↑` / `↓` move the highlight, `Enter` selects.
-- `Network Diagnostics` shows a read-only network snapshot.
-  `r` rescan, `t` test a host, `w` web report, `e` explain with AI,
-  `Esc` back (or the on-screen buttons). The bottom pane shows the full
-  detail of the highlighted row.
-- `Test host` opens a box for a hostname or IP; Enter pings it and resolves
-  it, `Esc` returns. Input is validated, so `-f`/`--flood` style values never
-  reach `ping`.
-- `Web UI` serves an HTML report on the tailnet; `Esc` stops it.
+- `Network Diagnostics` opens a submenu: `Local TUI`, `Port Check`,
+  `Start Tailnet Web UI`, `Back`.
+- `Port Check` asks for a host and a port, then tries a TCP connection:
+  `OPEN`, `CLOSED` (refused), `FILTERED` (no answer), `UNRESOLVED` (DNS).
 - `q` or `Quit` exits.
 
 ## Layout
@@ -57,7 +53,8 @@ install.sh                   setup script (venv + optional LLM)
 src/cyberdeck/app.py         main menu
 src/cyberdeck/diagnostics.py read-only checks + host validation (no UI, no root)
 src/cyberdeck/llm.py         optional Ollama client (stdlib urllib)
-src/cyberdeck/screens.py     diagnostics, host test, web UI, AI explain
+src/cyberdeck/ports.py       TCP port check (no UI, no root)
+src/cyberdeck/screens.py     submenu, diagnostics, host test, web, AI
 src/cyberdeck/web.py         HTML report server (stdlib http.server)
 ```
 
