@@ -7,14 +7,35 @@ and a layout that fits 80x24 upwards.
 
 from __future__ import annotations
 
+import threading
+from functools import partial
+
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Static
+from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
-from cyberdeck.diagnostics import CheckResult, run_all_checks
+from cyberdeck import web
+from cyberdeck.diagnostics import (
+    CheckResult,
+    run_all_checks,
+    run_host_checks,
+    validate_host,
+)
 from cyberdeck.llm import LLMError, is_available, stream_explanation
+
+
+def _status_text(ok: bool) -> Text:
+    # ANSI names, not hex: the Linux console has 16 colours.
+    return Text("OK", style="ansi_green") if ok else Text("FAIL", style="ansi_red")
+
+
+def _detail_for(results: list[CheckResult], index: int) -> str:
+    if not results or not 0 <= index < len(results):
+        return "Highlight a row to see the full result."
+    result = results[index]
+    return f"{result.name}: {result.detail}"
 
 
 class ComingSoonScreen(Screen):
@@ -42,6 +63,8 @@ class DiagnosticsScreen(Screen):
     BINDINGS = [
         ("escape", "dismiss_screen", "Back"),
         ("r", "rescan", "Rescan"),
+        ("t", "test_host", "Test host"),
+        ("w", "web_ui", "Web UI"),
         ("e", "explain", "Explain with AI"),
     ]
 
@@ -69,6 +92,9 @@ class DiagnosticsScreen(Screen):
     def __init__(self) -> None:
         super().__init__()
         self._results: list[CheckResult] = []
+        # Bumped on every rescan so a slow, superseded scan cannot overwrite
+        # fresher results when it finally finishes.
+        self._generation = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -76,6 +102,8 @@ class DiagnosticsScreen(Screen):
         yield Static("Highlight a row to see the full result.", id="detail-pane", markup=False)
         yield Horizontal(
             Button("Explain", id="explain", variant="primary"),
+            Button("Test host", id="test-host"),
+            Button("Web UI", id="web-ui"),
             Button("Rescan", id="rescan"),
             Button("Back", id="back"),
             id="buttons",
@@ -87,6 +115,9 @@ class DiagnosticsScreen(Screen):
         table.add_columns("Check", "Status", "Summary")
         self.action_rescan()
 
+    def on_unmount(self) -> None:
+        self.workers.cancel_group(self, "scan")
+
     def action_dismiss_screen(self) -> None:
         self.dismiss()
 
@@ -95,10 +126,19 @@ class DiagnosticsScreen(Screen):
         table.clear()
         table.add_row("Scanning...", "", "")
         self._results = []
+        self._generation += 1
+        generation = self._generation
         self.query_one("#detail-pane", Static).update("Running checks...")
         # thread=True keeps pings and DNS off the UI thread; exclusive=True
-        # cancels an in-flight scan if "r" is pressed again.
-        self.run_worker(self._scan, thread=True, exclusive=True, group="scan")
+        # cancels an in-flight scan if "r" is pressed again. exit_on_error
+        # keeps a failed check from taking the whole app down.
+        self.run_worker(
+            partial(self._scan, generation),
+            thread=True,
+            exclusive=True,
+            group="scan",
+            exit_on_error=False,
+        )
         table.focus()
 
     def action_explain(self) -> None:
@@ -107,25 +147,37 @@ class DiagnosticsScreen(Screen):
             return
         self.app.push_screen(ExplainScreen(self._results))
 
+    def action_test_host(self) -> None:
+        self.app.push_screen(HostTestScreen())
+
+    def action_web_ui(self) -> None:
+        self.app.push_screen(WebUIScreen())
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "explain":
             self.action_explain()
+        elif event.button.id == "test-host":
+            self.action_test_host()
+        elif event.button.id == "web-ui":
+            self.action_web_ui()
         elif event.button.id == "rescan":
             self.action_rescan()
         elif event.button.id == "back":
             self.dismiss()
 
-    def _scan(self) -> None:
+    def _scan(self, generation: int) -> None:
         results = run_all_checks()
-        self.app.call_from_thread(self._show_results, results)
+        self.app.call_from_thread(self._show_results, generation, results)
 
-    def _show_results(self, results: list[CheckResult]) -> None:
+    def _show_results(self, generation: int, results: list[CheckResult]) -> None:
+        # A superseded scan, or one whose screen is gone, must not touch the UI.
+        if generation != self._generation or not self.is_attached:
+            return
         table = self.query_one(DataTable)
         table.clear()
         self._results = results
         for result in results:
-            status = Text("OK", style="ansi_green") if result.ok else Text("FAIL", style="ansi_red")
-            table.add_row(result.name, status, result.summary)
+            table.add_row(result.name, _status_text(result.ok), result.summary)
         table.move_cursor(row=0)
         self._update_pane(0)
 
@@ -133,12 +185,164 @@ class DiagnosticsScreen(Screen):
         self._update_pane(event.cursor_row)
 
     def _update_pane(self, index: int) -> None:
-        pane = self.query_one("#detail-pane", Static)
-        if not self._results or not 0 <= index < len(self._results):
-            pane.update("Highlight a row to see the full result.")
+        self.query_one("#detail-pane", Static).update(_detail_for(self._results, index))
+
+
+class HostTestScreen(Screen):
+    """Ping and resolve a host the user types in."""
+
+    BINDINGS = [("escape", "dismiss_screen", "Back")]
+
+    CSS = """
+    #host-input {
+        margin: 0 0 1 0;
+    }
+    DataTable {
+        height: 1fr;
+    }
+    #host-detail {
+        height: 4;
+        padding: 0 1;
+        border: ascii $accent;
+    }
+    """
+
+    PROMPT = "Type a hostname or IP address, then press Enter."
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._results: list[CheckResult] = []
+        self._generation = 0
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Input(placeholder="e.g. pypi.org or 192.168.1.1", id="host-input")
+        yield DataTable(id="host-results", cursor_type="row")
+        yield Static(self.PROMPT, id="host-detail", markup=False)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(DataTable).add_columns("Check", "Status", "Summary")
+        self.query_one(Input).focus()
+
+    def on_unmount(self) -> None:
+        self.workers.cancel_group(self, "host")
+
+    def action_dismiss_screen(self) -> None:
+        self.dismiss()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        host = event.value.strip()
+        error = validate_host(host)
+        if error:
+            self.query_one("#host-detail", Static).update(error)
             return
-        result = self._results[index]
-        pane.update(f"{result.name}: {result.detail}")
+
+        table = self.query_one(DataTable)
+        table.clear()
+        table.add_row("Checking...", "", "")
+        self._results = []
+        self._generation += 1
+        generation = self._generation
+        self.query_one("#host-detail", Static).update(f"Checking {host}...")
+        # partial() so the worker gets the host; thread=True so a slow
+        # resolver cannot freeze the UI.
+        self.run_worker(
+            partial(self._run, generation, host),
+            thread=True,
+            exclusive=True,
+            group="host",
+            exit_on_error=False,
+        )
+
+    def _run(self, generation: int, host: str) -> None:
+        results = run_host_checks(host)
+        self.app.call_from_thread(self._show_results, generation, results)
+
+    def _show_results(self, generation: int, results: list[CheckResult]) -> None:
+        if generation != self._generation or not self.is_attached:
+            return
+        table = self.query_one(DataTable)
+        table.clear()
+        self._results = results
+        for result in results:
+            table.add_row(result.name, _status_text(result.ok), result.summary)
+        table.move_cursor(row=0)
+        self._update_pane(0)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self._update_pane(event.cursor_row)
+
+    def _update_pane(self, index: int) -> None:
+        self.query_one("#host-detail", Static).update(_detail_for(self._results, index))
+
+
+class WebUIScreen(Screen):
+    """Run the HTML report server until the user leaves this screen."""
+
+    BINDINGS = [("escape", "stop_and_back", "Stop")]
+
+    CSS = """
+    #web-info {
+        padding: 1 2;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._server = None
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("Starting the web UI...", id="web-info", markup=False)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._start()
+
+    def action_stop_and_back(self) -> None:
+        self.dismiss()
+
+    def on_unmount(self) -> None:
+        # Also runs when the app quits, so the port is always released.
+        self._stop()
+
+    def _start(self) -> None:
+        address = web.tailnet_address()
+        note = ""
+        if address is None:
+            address = "127.0.0.1"
+            note = "Tailscale not detected. Reach it with: ssh -L 8080:127.0.0.1:8080 <pi>"
+
+        try:
+            server = web.create_server(address, bind_note=note)
+        except OSError as exc:
+            self.query_one("#web-info", Static).update(f"Could not start the web UI on {address}: {exc}")
+            return
+
+        self._server = server
+        threading.Thread(
+            target=server.serve_forever, daemon=True, name="cyberdeck-web"
+        ).start()
+
+        lines = [f"Web UI running:  http://{address}:{server.server_address[1]}/", ""]
+        if note:
+            lines += [note, ""]
+        lines += [
+            "Open that address from any device on your tailnet.",
+            "It is a detailed report: every check plus the raw command output.",
+            "The page refreshes every 30 seconds.",
+            "Press Esc to stop the server.",
+        ]
+        self.query_one("#web-info", Static).update("\n".join(lines))
+
+    def _stop(self) -> None:
+        server = self._server
+        if server is None:
+            return
+        self._server = None
+        server.shutdown()
+        server.server_close()
 
 
 class ExplainScreen(Screen):
@@ -158,6 +362,9 @@ class ExplainScreen(Screen):
         super().__init__()
         self.results = results
         self._text = ""
+        # Textual cannot cancel a thread worker, so the worker checks this
+        # between chunks and stops reading from Ollama itself.
+        self._cancel = threading.Event()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -167,13 +374,28 @@ class ExplainScreen(Screen):
 
     def on_mount(self) -> None:
         # The model can take seconds to answer on a Pi; never block the UI.
-        self.run_worker(self._stream, thread=True, exclusive=True, group="explain")
+        self.run_worker(
+            self._stream, thread=True, exclusive=True, group="explain", exit_on_error=False
+        )
 
     def action_cancel(self) -> None:
+        self._cancel.set()
         self.workers.cancel_group(self, "explain")
         self.dismiss()
 
+    def on_unmount(self) -> None:
+        self._cancel.set()
+        self.workers.cancel_group(self, "explain")
+
     def _stream(self) -> None:
+        try:
+            self._run_stream()
+        except LLMError as exc:
+            self._show("AI unavailable", str(exc))
+        except Exception as exc:  # noqa: BLE001 - never crash the TUI on this
+            self._show("AI error", str(exc))
+
+    def _run_stream(self) -> None:
         available, reason = is_available()
         if not available:
             self._show("AI unavailable", reason)
@@ -181,16 +403,15 @@ class ExplainScreen(Screen):
 
         self._show("", "")
         received = False
+        generator = stream_explanation(self.results, cancel_event=self._cancel)
         try:
-            for chunk in stream_explanation(self.results):
+            for chunk in generator:
                 received = True
                 self.app.call_from_thread(self._append, chunk)
-        except LLMError as exc:
-            self._show("AI unavailable", str(exc))
-            return
-        except Exception as exc:  # noqa: BLE001 - never crash the TUI on this
-            self._show("AI error", str(exc))
-            return
+        finally:
+            # Closing the generator closes the HTTP response immediately
+            # instead of leaving the socket open until GC.
+            generator.close()
 
         # Tracked in this thread: _text is updated asynchronously on the UI
         # thread, so reading it here would race the final chunks.
