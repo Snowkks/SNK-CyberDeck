@@ -12,6 +12,21 @@ A toolbox of small Linux, networking and security tools, with a terminal UI laun
 ## Setup
 
 ```sh
+./install.sh            # asks once about the optional local LLM
+./install.sh --no-llm   # Python deps only
+```
+
+Options: `--with-llm` (no prompt), `--no-llm`, `--model NAME`, `--help`.
+It creates `.venv`, installs `requirements.txt`, and makes `cyberdeck`
+executable. Re-running is safe.
+
+For the LLM it will install Ollama only if you approve: the vendor script is
+downloaded to `.tmp/`, its sha256 printed, and it runs as root only after a
+second `[y/N]`. Declining (or non-interactive use) skips the LLM entirely.
+
+Manual setup, if you prefer:
+
+```sh
 python3 -m venv .venv          # needs Python >= 3.10
 ./.venv/bin/pip install -r requirements.txt
 ```
@@ -37,6 +52,7 @@ python3 -m venv .venv          # needs Python >= 3.10
 
 ```
 cyberdeck                    launcher (uses .venv, adds src/ to PYTHONPATH)
+install.sh                   setup script (venv + optional LLM)
 src/cyberdeck/app.py         main menu
 src/cyberdeck/diagnostics.py read-only checks + host validation (no UI, no root)
 src/cyberdeck/llm.py         optional Ollama client (stdlib urllib)
