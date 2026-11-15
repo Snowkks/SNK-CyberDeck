@@ -17,8 +17,13 @@ python3 -m venv .venv          # needs Python >= 3.10
 
 - `↑` / `↓` move the highlight, `Enter` selects.
 - `Network Diagnostics` shows a read-only network snapshot.
-  `r` rescan, `e` explain with AI, `Esc` back (or the on-screen buttons).
-  The bottom pane shows the full detail of the highlighted row.
+  `r` rescan, `t` test a host, `w` web report, `e` explain with AI,
+  `Esc` back (or the on-screen buttons). The bottom pane shows the full
+  detail of the highlighted row.
+- `Test host` opens a box for a hostname or IP; Enter pings it and resolves
+  it, `Esc` returns. Input is validated, so `-f`/`--flood` style values never
+  reach `ping`.
+- `Web UI` serves an HTML report on the tailnet; `Esc` stops it.
 - `q` or `Quit` exits.
 
 ## Layout
@@ -26,10 +31,31 @@ python3 -m venv .venv          # needs Python >= 3.10
 ```
 cyberdeck                    launcher (uses .venv, adds src/ to PYTHONPATH)
 src/cyberdeck/app.py         main menu
-src/cyberdeck/diagnostics.py read-only checks (no UI, no root)
+src/cyberdeck/diagnostics.py read-only checks + host validation (no UI, no root)
 src/cyberdeck/llm.py         optional Ollama client (stdlib urllib)
-src/cyberdeck/screens.py     diagnostics, AI explain, placeholder screens
+src/cyberdeck/screens.py     diagnostics, host test, web UI, AI explain
+src/cyberdeck/web.py         HTML report server (stdlib http.server)
 ```
+
+## Web UI (tailnet)
+
+`w` on the diagnostics screen starts an HTTP report and shows the URL:
+
+    http://<tailscale-ip>:8080/
+
+Get the address with `tailscale ip -4`. The page is a detailed report (every
+check, full detail text, raw command output in collapsible blocks) and
+refreshes every 30 s. `Esc` stops the server.
+
+- Bound to the `tailscale0` address, not `0.0.0.0`: only tailnet devices can
+  reach it. No login; your Tailscale ACLs are the access control.
+- Plain HTTP is fine here because Tailscale already encrypts traffic between
+  tailnet nodes. Add `tailscale serve --bg 8080` if you want HTTPS and a
+  `*.ts.net` name instead.
+- If Tailscale is down it binds `127.0.0.1` and prints an `ssh -L` tunnel hint.
+- Port 8080; a second instance reports "address already in use".
+  The report is cached for 10 s (one scan serves several refreshes) and
+  idle clients are dropped after 5 s.
 
 ## AI explanations (optional)
 
@@ -66,7 +92,7 @@ Notes:
 ./.venv/bin/python -m unittest discover -s tests -t .
 ```
 
-34 tests, ~10 s, offline-safe: command output is mocked and Ollama is a local
+79 tests, ~26 s, offline-safe: command output is mocked and Ollama is a local
 stub server (`tests/stub_ollama.py`), so results do not depend on this
 machine's network, on `ping`/`ip` being installed, or on a model being
 present. Run them before trusting a change on the Pi.
@@ -85,3 +111,4 @@ The UI is written for the Linux console, not a desktop terminal:
   if `gpm` is installed and running; otherwise use the keyboard.
 - Over SSH, use `ssh -t` (the app needs a real terminal). Without `-t` it exits
   with "no terminal".
+# SNK-Cyberdeck
