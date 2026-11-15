@@ -63,7 +63,10 @@ while [ $# -gt 0 ]; do
         --model)
             shift
             [ $# -gt 0 ] || die "--model needs a value"
-            MODEL="$1"
+            case "$1" in
+                *[![:space:]]*) MODEL="$1" ;;
+                *) die "--model needs a value" ;;
+            esac
             ;;
         -h|--help) usage; exit 0 ;;
         *) usage >&2; die "unknown option: $1" ;;
@@ -147,7 +150,7 @@ if [ "$LLM_CHOICE" = yes ]; then
     fi
 fi
 
-# --- 5. Hints -------------------------------------------------------------
+# --- Hints ---------------------------------------------------------------
 if ! command -v tailscale >/dev/null 2>&1; then
     info "Tailscale not found: the web UI will only bind 127.0.0.1"
 fi
