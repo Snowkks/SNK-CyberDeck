@@ -43,6 +43,18 @@ python3 -m venv .venv          # needs Python >= 3.10
   `Start Tailnet Web UI`, `Back`.
 - `Port Check` asks for a host and a port, then tries a TCP connection:
   `OPEN`, `CLOSED` (refused), `FILTERED` (no answer), `UNRESOLVED` (DNS).
+- `Tailscale: UP/DOWN` shows the real BackendState and toggles it with `t`.
+  Disconnecting asks for a second `t` because it drops tailnet SSH. It runs
+  `sudo tailscale up|down`; the TUI temporarily hands the terminal back so
+  the sudo password prompt is visible.
+- `Local TUI` shows a read-only network snapshot.
+  `r` rescan, `t` test a host, `w` web report, `e` explain with AI,
+  `Esc` back (or the on-screen buttons). The bottom pane shows the full
+  detail of the highlighted row.
+- `Test host` opens a box for a hostname or IP; Enter pings it and resolves
+  it, `Esc` returns. Input is validated, so `-f`/`--flood` style values never
+  reach `ping`.
+- `Web UI` serves an HTML report on the tailnet; `Esc` stops it.
 - `q` or `Quit` exits.
 
 ## Layout
@@ -54,6 +66,7 @@ src/cyberdeck/app.py         main menu
 src/cyberdeck/diagnostics.py read-only checks + host validation (no UI, no root)
 src/cyberdeck/llm.py         optional Ollama client (stdlib urllib)
 src/cyberdeck/ports.py       TCP port check (no UI, no root)
+src/cyberdeck/tailnet.py     tailscale status + sudo up/down
 src/cyberdeck/screens.py     submenu, diagnostics, host test, web, AI
 src/cyberdeck/web.py         HTML report server (stdlib http.server)
 ```

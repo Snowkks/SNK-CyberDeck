@@ -25,6 +25,7 @@ from cyberdeck.diagnostics import (
     validate_host,
 )
 from cyberdeck.llm import LLMError, is_available, stream_explanation
+from cyberdeck import tailnet
 from cyberdeck.ports import check_port, validate_port
 
 
@@ -382,6 +383,77 @@ class PortCheckScreen(Screen):
         verdict.append(f"  {result.name}", style="default")
         self.query_one("#port-verdict", Static).update(verdict)
         self.query_one("#port-detail", Static).update(result.detail)
+
+
+class TailnetScreen(Screen):
+    """Show Tailscale state and toggle it on/off."""
+
+    BINDINGS = [
+        ("escape", "back", "Back"),
+        ("t", "toggle", "Toggle"),
+    ]
+
+    CSS = """
+    #tailnet-info {
+        padding: 1 2;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._armed = False
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("Checking Tailscale...", id="tailnet-info", markup=False)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._refresh()
+
+    def on_unmount(self) -> None:
+        # The menu label shows the state; keep it current after any exit path.
+        self.app.refresh_tailnet_label()
+
+    def action_back(self) -> None:
+        self.dismiss()
+
+    def _refresh(self, extra: str = "") -> None:
+        state, detail = tailnet.status()
+        lines = [f"Tailscale: {state.upper()}", detail, ""]
+        if state == "up":
+            lines += ["Press t to disconnect.", "Warning: that drops tailnet SSH sessions."]
+        elif state == "down":
+            lines += ["Press t to connect."]
+        else:
+            lines += ["Check it from a shell: tailscale status"]
+        lines += ["", "Uses sudo - the terminal is handed back for the password prompt."]
+        if extra:
+            lines += ["", extra]
+        self._armed = False
+        self.query_one("#tailnet-info", Static).update("\n".join(lines))
+
+    def action_toggle(self) -> None:
+        state, _detail = tailnet.status()
+
+        if state == "up" and not self._armed:
+            self._armed = True
+            self.query_one("#tailnet-info", Static).update(
+                "Disconnecting drops tailnet connections, including SSH.\n\n"
+                "Press t again to confirm, Esc to cancel."
+            )
+            return
+
+        self._armed = False
+        turn_on = state != "up"
+        self.query_one("#tailnet-info", Static).update(
+            f"Turning Tailscale {'on' if turn_on else 'off'}... (sudo may ask for a password)"
+        )
+        # suspend() gives the terminal back so sudo can read the password;
+        # without it the prompt would be swallowed by the TUI.
+        with self.app.suspend():
+            ok, message = tailnet.set_state(turn_on)
+        self._refresh("" if ok else message)
 
 
 class WebUIScreen(Screen):
