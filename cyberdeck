@@ -1,0 +1,13 @@
+#!/bin/sh
+# Launcher for the Snowk CyberDeck TUI.
+# Runs inside the project's .venv so the system Python stays untouched.
+
+cd "$(dirname "$0")" || exit 1
+
+if [ ! -x .venv/bin/python ]; then
+    echo "cyberdeck: .venv is missing." >&2
+    echo "Run: python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt" >&2
+    exit 1
+fi
+
+PYTHONPATH=src exec .venv/bin/python -m cyberdeck "$@"
