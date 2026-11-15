@@ -64,9 +64,16 @@ src/cyberdeck/web.py         HTML report server (stdlib http.server)
 
     http://<tailscale-ip>:8080/
 
-Get the address with `tailscale ip -4`. The page is a detailed report (every
-check, full detail text, raw command output in collapsible blocks) and
-refreshes every 30 s. `Esc` stops the server.
+Get the address with `tailscale ip -4`. The page opens with a pass/fail
+banner and check counts, shows a system-info block (hostname, kernel,
+machine, uptime, primary IP), then a table of every check (status, summary,
+detail), then untruncated `$ command` / raw-output blocks. It refreshes
+every 30 s. `Esc` stops the server.
+
+An **Explain with AI** button (`/?ai=1`) sends the results to the local
+model and renders the answer in a card. It generates once and caches for
+5 minutes, because the page would otherwise re-run the model on every
+30 s refresh. With Ollama offline the card shows the reason instead.
 
 - Bound to the `tailscale0` address, not `0.0.0.0`: only tailnet devices can
   reach it. No login; your Tailscale ACLs are the access control.
@@ -81,8 +88,10 @@ refreshes every 30 s. `Esc` stops the server.
 ## AI explanations (optional)
 
 `e` on the diagnostics screen sends the check results to a local model and
-streams back a short explanation. CyberDeck works fine without it: if nothing
-is listening, the screen says `LLM offline` and how to fix it.
+streams back a short explanation. While the Pi prefills the prompt the
+screen shows `Waiting for the model... Ns`, so a slow first token is visible
+rather than a blank screen. CyberDeck works fine without it: if nothing is
+listening, the screen says `LLM offline` and how to fix it.
 
 Setup on the Pi (needs sudo and ~2 GB disk; not done by the app):
 

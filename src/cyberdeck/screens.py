@@ -8,6 +8,7 @@ and a layout that fits 80x24 upwards.
 from __future__ import annotations
 
 import threading
+import time
 from functools import partial
 
 from rich.text import Text
@@ -471,6 +472,9 @@ class ExplainScreen(Screen):
         # Textual cannot cancel a thread worker, so the worker checks this
         # between chunks and stops reading from Ollama itself.
         self._cancel = threading.Event()
+        self._waiting = False
+        self._wait_started = 0.0
+        self._timer = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -490,6 +494,7 @@ class ExplainScreen(Screen):
         self.dismiss()
 
     def on_unmount(self) -> None:
+        self._stop_waiting()
         self._cancel.set()
         self.workers.cancel_group(self, "explain")
 
@@ -508,6 +513,7 @@ class ExplainScreen(Screen):
             return
 
         self._show("", "")
+        self.app.call_from_thread(self._begin_waiting)
         received = False
         generator = stream_explanation(self.results, cancel_event=self._cancel)
         try:
@@ -531,12 +537,37 @@ class ExplainScreen(Screen):
     def _set_text(self, text: str) -> None:
         if not self.is_attached:
             return
+        if text:
+            self._stop_waiting()
         self._text = text
         self.query_one("#explain-text", Static).update(text)
+
+    def _begin_waiting(self) -> None:
+        # A Pi needs seconds to prefill the prompt. Show that instead of a
+        # blank screen, and count up so a stall is recognisable.
+        if not self.is_attached:
+            return
+        self._waiting = True
+        self._wait_started = time.monotonic()
+        self._timer = self.set_interval(0.5, self._tick)
+
+    def _tick(self) -> None:
+        if not self.is_attached or not self._waiting:
+            return
+        elapsed = int(time.monotonic() - self._wait_started)
+        self.query_one("#explain-text", Static).update(f"Waiting for the model... {elapsed}s")
+
+    def _stop_waiting(self) -> None:
+        self._waiting = False
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer = None
 
     def _append(self, chunk: str) -> None:
         if not self.is_attached:
             return
+        if self._waiting:
+            self._stop_waiting()
         self._text += chunk
         self.query_one("#explain-text", Static).update(self._text)
         self.query_one(VerticalScroll).scroll_end(animate=False)
