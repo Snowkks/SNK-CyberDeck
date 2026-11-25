@@ -43,7 +43,7 @@ Usage: ./install.sh [options]
 Sets up ./.venv, installs dependencies, and can download a local LLM.
 
 Options:
-  --with-llm       Install Ollama if missing and pull the model, no prompt
+  --with-llm       Enable Ollama setup; asks before using sudo
   --no-llm         Skip everything LLM-related
   --model NAME     Model to pull (default: qwen2.5:1.5b)
   -h, --help       Show this help

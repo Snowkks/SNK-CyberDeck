@@ -1,31 +1,75 @@
-"""The CyberDeck launcher: a menu of tools."""
+"""Main CyberDeck launcher."""
+
+from datetime import datetime
+import socket
 
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Header, Label, ListItem, ListView
+from textual.containers import Vertical
+from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
-from cyberdeck import tailnet
 from cyberdeck.screens import SubmenuScreen, TailnetScreen
+from cyberdeck.timer import TimerScreen
+from cyberdeck.tools import grouped_tools
 
 
 class CyberDeckApp(App):
-    """Main menu. Each ListItem id maps to one action."""
+    """Small keyboard-first launcher for the CyberDeck tools."""
 
-    TITLE = "SNCD"
-    SUB_TITLE = "v0.2.0"
-
-    # ansi-dark only uses the 16 ANSI colours, which is all the Linux
-    # console on the Pi's 7" panel can display.
+    TITLE = "SNK CYBERDECK"
+    SUB_TITLE = "LOCAL TOOLKIT"
     theme = "ansi-dark"
 
     CSS = """
-    ListView {
-        width: 34;
-        height: auto;
-        margin: 1 0;
-        border: ascii $accent;
+    Screen {
+        align: center middle;
     }
+
+    #shell {
+        width: 76;
+        height: auto;
+        max-height: 90%;
+        border: ascii $accent;
+        padding: 1 2;
+    }
+
+    #intro {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #title {
+        color: $accent;
+        text-style: bold;
+    }
+
+    #subtitle, #status, #hint {
+        color: $text-muted;
+    }
+
+    #menu {
+        height: auto;
+        max-height: 14;
+        border: none;
+    }
+
+    .category {
+        color: $accent;
+        text-style: bold;
+        padding: 1 0 0 0;
+    }
+
     ListItem {
+        height: 2;
         padding: 0 1;
+    }
+
+    #status {
+        height: 1;
+        margin-top: 1;
+    }
+
+    #hint {
+        height: 1;
     }
     """
 
@@ -33,32 +77,52 @@ class CyberDeckApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield ListView(
-            ListItem(Label("Network Diagnostics"), id="network-diagnostics"),
-            ListItem(Label("Tailscale: ...", id="tailscale-label"), id="tailscale"),
-            ListItem(Label("Quit"), id="quit"),
-            id="menu",
-        )
+        with Vertical(id="shell"):
+            yield Vertical(
+                Label("SNK CYBERDECK", id="title"),
+                Label("A compact toolkit for systems and networks", id="subtitle"),
+                id="intro",
+            )
+            yield ListView(*self.create_menu_items(), id="menu")
+            yield Static("", id="status")
+            yield Static("↑ ↓ move   Enter open   q quit", id="hint")
         yield Footer()
 
     def on_mount(self) -> None:
-        # Without focus the arrow keys would not reach the list.
         self.query_one("#menu", ListView).focus()
-        self.refresh_tailnet_label()
+        self.refresh_status()
+        self.set_interval(1, self.refresh_status)
 
-    def refresh_tailnet_label(self) -> None:
-        """Keep the menu entry in sync with the real Tailscale state."""
-        try:
-            label = self.query_one("#tailscale-label", Label)
-        except Exception:  # noqa: BLE001 - menu may not be mounted yet
-            return
-        state, _detail = tailnet.status()
-        label.update(f"Tailscale: {state.upper()}")
+    def create_menu_items(self) -> list[ListItem]:
+        """Build the launcher from the tool catalog."""
+
+        items: list[ListItem] = []
+        for category, tools in grouped_tools().items():
+            items.append(ListItem(Label(category), disabled=True, classes="category"))
+            items.extend(
+                ListItem(Label(tool.name), id=tool.identifier)
+                for tool in tools
+            )
+        return items
+
+    def refresh_status(self) -> None:
+        """Show a quiet, useful machine status line."""
+
+        now = datetime.now().astimezone()
+        self.query_one("#status", Static).update(
+            f"{socket.gethostname()}  ·  {now.strftime('%H:%M:%S %Z')}"
+        )
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if event.item.id == "network-diagnostics":
-            self.push_screen(SubmenuScreen())
-        elif event.item.id == "tailscale":
-            self.push_screen(TailnetScreen())
+        """Open the selected tool."""
+
+        destinations = {
+            "timer": TimerScreen,
+            "network": SubmenuScreen,
+            "tailscale": TailnetScreen,
+        }
+        screen = destinations.get(event.item.id)
+        if screen is not None:
+            self.push_screen(screen())
         elif event.item.id == "quit":
             self.exit()

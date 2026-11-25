@@ -1,21 +1,25 @@
-"""Screens that are not the main menu.
-
-Written for the Linux console on the 7" panel: ASCII only (no ✓/✗ or
-rounded borders, which console bitmap fonts often lack), ANSI-16 colours,
-and a layout that fits 80x24 upwards.
-"""
-
 from __future__ import annotations
 
 import threading
 import time
 from functools import partial
+from datetime import datetime
 
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, ListItem, ListView, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Static,
+)
 
 from cyberdeck import web
 from cyberdeck.diagnostics import (
@@ -102,7 +106,9 @@ class DiagnosticsScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield DataTable(id="results", cursor_type="row", zebra_stripes=True)
-        yield Static("Highlight a row to see the full result.", id="detail-pane", markup=False)
+        yield Static(
+            "Highlight a row to see the full result.", id="detail-pane", markup=False
+        )
         yield Horizontal(
             Button("Explain", id="explain", variant="primary"),
             Button("Test host", id="test-host"),
@@ -146,7 +152,9 @@ class DiagnosticsScreen(Screen):
 
     def action_explain(self) -> None:
         if not self._results:
-            self.query_one("#detail-pane", Static).update("Wait for the scan to finish first.")
+            self.query_one("#detail-pane", Static).update(
+                "Wait for the scan to finish first."
+            )
             return
         self.app.push_screen(ExplainScreen(self._results))
 
@@ -338,7 +346,11 @@ class PortCheckScreen(Screen):
         yield Header()
         yield Input(placeholder="Host (e.g. 192.168.1.10)", id="port-host")
         yield Input(placeholder="Port (1-65535)", id="port-number")
-        yield Static("Enter a host and a port, then press Enter.", id="port-verdict", markup=False)
+        yield Static(
+            "Enter a host and a port, then press Enter.",
+            id="port-verdict",
+            markup=False,
+        )
         yield Static("", id="port-detail", markup=False)
         yield Footer()
 
@@ -362,7 +374,9 @@ class PortCheckScreen(Screen):
             return
 
         self._generation += 1
-        self.query_one("#port-verdict", Static).update(f"Connecting to {host}:{port}...")
+        self.query_one("#port-verdict", Static).update(
+            f"Connecting to {host}:{port}..."
+        )
         self.query_one("#port-detail", Static).update("")
         self.run_worker(
             partial(self._run, self._generation, host, port),
@@ -379,7 +393,11 @@ class PortCheckScreen(Screen):
     def _show_result(self, generation: int, result: CheckResult) -> None:
         if generation != self._generation or not self.is_attached:
             return
-        verdict = Text("OPEN", style="ansi_green") if result.ok else Text(result.summary.upper(), style="ansi_red")
+        verdict = (
+            Text("OPEN", style="ansi_green")
+            if result.ok
+            else Text(result.summary.upper(), style="ansi_red")
+        )
         verdict.append(f"  {result.name}", style="default")
         self.query_one("#port-verdict", Static).update(verdict)
         self.query_one("#port-detail", Static).update(result.detail)
@@ -422,12 +440,18 @@ class TailnetScreen(Screen):
         state, detail = tailnet.status()
         lines = [f"Tailscale: {state.upper()}", detail, ""]
         if state == "up":
-            lines += ["Press t to disconnect.", "Warning: that drops tailnet SSH sessions."]
+            lines += [
+                "Press t to disconnect.",
+                "Warning: that drops tailnet SSH sessions.",
+            ]
         elif state == "down":
             lines += ["Press t to connect."]
         else:
             lines += ["Check it from a shell: tailscale status"]
-        lines += ["", "Uses sudo - the terminal is handed back for the password prompt."]
+        lines += [
+            "",
+            "Uses sudo - the terminal is handed back for the password prompt.",
+        ]
         if extra:
             lines += ["", extra]
         self._armed = False
@@ -491,12 +515,16 @@ class WebUIScreen(Screen):
         note = ""
         if address is None:
             address = "127.0.0.1"
-            note = "Tailscale not detected. Reach it with: ssh -L 8080:127.0.0.1:8080 <pi>"
+            note = (
+                "Tailscale not detected. Reach it with: ssh -L 8080:127.0.0.1:8080 <pi>"
+            )
 
         try:
             server = web.create_server(address, bind_note=note)
         except OSError as exc:
-            self.query_one("#web-info", Static).update(f"Could not start the web UI on {address}: {exc}")
+            self.query_one("#web-info", Static).update(
+                f"Could not start the web UI on {address}: {exc}"
+            )
             return
 
         self._server = server
@@ -557,7 +585,11 @@ class ExplainScreen(Screen):
     def on_mount(self) -> None:
         # The model can take seconds to answer on a Pi; never block the UI.
         self.run_worker(
-            self._stream, thread=True, exclusive=True, group="explain", exit_on_error=False
+            self._stream,
+            thread=True,
+            exclusive=True,
+            group="explain",
+            exit_on_error=False,
         )
 
     def action_cancel(self) -> None:
@@ -627,7 +659,9 @@ class ExplainScreen(Screen):
         if not self.is_attached or not self._waiting:
             return
         elapsed = int(time.monotonic() - self._wait_started)
-        self.query_one("#explain-text", Static).update(f"Waiting for the model... {elapsed}s")
+        self.query_one("#explain-text", Static).update(
+            f"Waiting for the model... {elapsed}s"
+        )
 
     def _stop_waiting(self) -> None:
         self._waiting = False
@@ -643,3 +677,296 @@ class ExplainScreen(Screen):
         self._text += chunk
         self.query_one("#explain-text", Static).update(self._text)
         self.query_one(VerticalScroll).scroll_end(animate=False)
+
+
+class TimeToolsScreen(Screen):
+    """Clock, countdown, Pomodoro, and stopwatch."""
+
+    BINDINGS = [
+        ("escape", "dismiss_screen", "Back"),
+        ("space", "toggle_timer", "Start/Pause"),
+        ("r", "reset_timer", "Reset"),
+        ("p", "pomodoro", "Pomodoro"),
+        ("c", "countdown", "Countdown"),
+        ("s", "stopwatch", "Stopwatch"),
+        ("l", "lap", "Lap"),
+    ]
+
+    CSS = """
+    #clock {
+        height: 4;
+        content-align: center middle;
+        border: ascii $accent;
+        margin: 1 0;
+    }
+
+    #mode {
+        height: 2;
+        content-align: center middle;
+        text-style: bold;
+    }
+
+    #timer {
+        height: 3;
+        content-align: center middle;
+        text-style: bold;
+    }
+
+    #help {
+        height: 2;
+        content-align: center middle;
+    }
+
+    #minutes {
+        width: 20;
+        margin: 0 1;
+    }
+
+    #laps {
+        height: 1fr;
+        border: ascii $accent;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.mode = "pomodoro"
+        self.running = False
+
+        self.work_minutes = 25
+        self.break_minutes = 5
+        self.is_break = False
+
+        self.remaining_seconds = 25 * 60
+        self.deadline = 0.0
+
+        self.elapsed_seconds = 0.0
+        self.started_at = 0.0
+        self.lap_count = 0
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        yield Static("", id="clock")
+
+        yield Static(
+            "POMODORO - WORK - PAUSED",
+            id="mode",
+        )
+
+        yield Static("25:00", id="timer")
+
+        yield Static(
+            "Space start/pause | r reset | p Pomodoro | c Countdown | s Stopwatch",
+            id="help",
+        )
+
+        yield Input(
+            value="25",
+            placeholder="Minutes",
+            id="minutes",
+        )
+
+        yield Static(
+            "Stopwatch laps will appear here.",
+            id="laps",
+            markup=False,
+        )
+
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.set_interval(0.2, self.refresh_display)
+        self.refresh_display()
+
+    def action_dismiss_screen(self) -> None:
+        self.dismiss()
+
+    def action_toggle_timer(self) -> None:
+        if self.running:
+            self.pause_timer()
+        else:
+            self.start_timer()
+
+    def start_timer(self) -> None:
+        if self.mode == "stopwatch":
+            self.started_at = time.monotonic()
+        else:
+            self.deadline = time.monotonic() + self.remaining_seconds
+
+        self.running = True
+
+    def pause_timer(self) -> None:
+        if self.mode == "stopwatch":
+            self.elapsed_seconds += time.monotonic() - self.started_at
+        else:
+            self.remaining_seconds = max(
+                0,
+                int(self.deadline - time.monotonic()),
+            )
+
+        self.running = False
+
+    def action_reset_timer(self) -> None:
+        self.running = False
+
+        if self.mode == "stopwatch":
+            self.elapsed_seconds = 0
+            self.started_at = 0
+            self.lap_count = 0
+            self.query_one("#laps", Static).update(
+                "Stopwatch reset. Press l to record laps."
+            )
+            return
+
+        if self.mode == "countdown":
+            minutes = self.read_minutes(default=5)
+            self.remaining_seconds = minutes * 60
+            return
+
+        self.is_break = False
+        self.remaining_seconds = self.work_minutes * 60
+
+    def action_pomodoro(self) -> None:
+        self.running = False
+        self.mode = "pomodoro"
+        self.is_break = False
+        self.work_minutes = self.read_minutes(default=25)
+        self.remaining_seconds = self.work_minutes * 60
+
+        self.query_one("#minutes", Input).value = str(self.work_minutes)
+
+        self.query_one("#laps", Static).update("Pomodoro uses work and break phases.")
+
+    def action_countdown(self) -> None:
+        self.running = False
+        self.mode = "countdown"
+
+        minutes = self.read_minutes(default=5)
+        self.remaining_seconds = minutes * 60
+
+        self.query_one("#minutes", Input).value = str(minutes)
+
+        self.query_one("#laps", Static).update(
+            "Enter minutes, press Enter, then Space to start."
+        )
+
+    def action_stopwatch(self) -> None:
+        self.running = False
+        self.mode = "stopwatch"
+        self.elapsed_seconds = 0
+        self.started_at = 0
+        self.lap_count = 0
+
+        self.query_one("#laps", Static).update("Stopwatch ready. Press Space to start.")
+
+    def action_lap(self) -> None:
+        if self.mode != "stopwatch":
+            return
+
+        current = self.elapsed_seconds
+
+        if self.running:
+            current += time.monotonic() - self.started_at
+
+        self.lap_count += 1
+
+        laps = self.query_one("#laps", Static)
+        previous = str(laps.renderable)
+
+        line = f"Lap {self.lap_count}: {self.format_time(current)}"
+
+        if self.lap_count == 1:
+            laps.update(line)
+        else:
+            laps.update(f"{previous}\n{line}")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        minutes = self.read_minutes(default=5)
+
+        if self.mode == "pomodoro":
+            self.work_minutes = minutes
+
+            if not self.is_break:
+                self.remaining_seconds = minutes * 60
+
+        elif self.mode == "countdown":
+            self.remaining_seconds = minutes * 60
+
+        self.running = False
+
+    def read_minutes(self, default: int) -> int:
+        try:
+            value = int(self.query_one("#minutes", Input).value)
+
+            if value < 1:
+                return default
+
+            return min(value, 999)
+
+        except ValueError:
+            return default
+
+    @staticmethod
+    def format_time(seconds: float) -> str:
+        seconds = max(0, int(seconds))
+
+        minutes, seconds = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+
+        if hours:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def refresh_display(self) -> None:
+        if not self.is_attached:
+            return
+
+        now = datetime.now().astimezone()
+
+        self.query_one("#clock", Static).update(
+            now.strftime("%A, %d %B %Y\n%H:%M:%S %Z")
+        )
+
+        if self.mode == "stopwatch":
+            elapsed = self.elapsed_seconds
+
+            if self.running:
+                elapsed += time.monotonic() - self.started_at
+
+            timer_text = self.format_time(elapsed)
+            mode_text = "STOPWATCH - RUNNING" if self.running else "STOPWATCH - PAUSED"
+
+        else:
+            if self.running:
+                self.remaining_seconds = max(
+                    0,
+                    int(self.deadline - time.monotonic()),
+                )
+
+            if self.remaining_seconds == 0 and self.running:
+                self.running = False
+
+                if self.mode == "pomodoro":
+                    self.is_break = not self.is_break
+
+                    if self.is_break:
+                        self.remaining_seconds = self.break_minutes * 60
+                    else:
+                        self.remaining_seconds = self.work_minutes * 60
+
+            timer_text = self.format_time(self.remaining_seconds)
+
+            if self.mode == "pomodoro":
+                phase = "BREAK" if self.is_break else "WORK"
+                state = "RUNNING" if self.running else "PAUSED"
+                mode_text = f"POMODORO - {phase} - {state}"
+            else:
+                state = "RUNNING" if self.running else "PAUSED"
+                mode_text = f"COUNTDOWN - {state}"
+
+        self.query_one("#mode", Static).update(mode_text)
+        self.query_one("#timer", Static).update(timer_text)
