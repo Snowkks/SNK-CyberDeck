@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -63,6 +64,7 @@ class TimerScreen(Screen):
         Binding("p", "pomodoro", "Pomodoro"),
         Binding("c", "countdown", "Countdown"),
         Binding("d", "edit_duration", "Edit minutes"),
+        Binding("enter", "dismiss_alert", "Dismiss alert"),
     ]
 
     CSS = """
@@ -76,6 +78,10 @@ class TimerScreen(Screen):
         max-height: 90%;
         border: ascii $accent;
         padding: 1 2;
+    }
+
+    #panel.alert {
+        border: heavy $warning;
     }
 
     #title, #mode, #date, #instructions {
@@ -120,6 +126,8 @@ class TimerScreen(Screen):
     def __init__(self) -> None:
         super().__init__()
         self.state = TimerState()
+        self.alert_message = ""
+        self.alert_until = 0.0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -155,6 +163,7 @@ class TimerScreen(Screen):
     def action_local_time(self) -> None:
         """Show the current local time."""
 
+        self.clear_alert()
         self.state = TimerState(mode=TimerMode.LOCAL_TIME)
         self.set_duration_input("")
         self.set_duration_visibility(False)
@@ -164,6 +173,7 @@ class TimerScreen(Screen):
     def action_pomodoro(self) -> None:
         """Start a fresh Pomodoro work phase."""
 
+        self.clear_alert()
         minutes = self.read_minutes(default=DEFAULT_POMODORO_MINUTES)
         self.state = TimerState(
             mode=TimerMode.POMODORO,
@@ -177,6 +187,7 @@ class TimerScreen(Screen):
     def action_countdown(self) -> None:
         """Prepare a custom countdown."""
 
+        self.clear_alert()
         minutes = self.read_minutes(default=DEFAULT_COUNTDOWN_MINUTES)
         self.state = TimerState(
             mode=TimerMode.COUNTDOWN,
@@ -203,9 +214,16 @@ class TimerScreen(Screen):
         if self.state.mode != TimerMode.LOCAL_TIME:
             self.query_one("#duration", Input).focus()
 
+    def action_dismiss_alert(self) -> None:
+        """Dismiss the visible completion alert."""
+
+        if self.alert_message:
+            self.clear_alert()
+
     def action_reset(self) -> None:
         """Reset the active mode without changing its selected mode."""
 
+        self.clear_alert()
         self.state.running = False
         self.state.started_at = None
         if self.state.mode == TimerMode.POMODORO:
@@ -292,11 +310,45 @@ class TimerScreen(Screen):
             mode = TimerMode.LOCAL_TIME.value
         else:
             self.handle_finished_timer()
+
+            if self.alert_is_active():
+                self.query_one("#mode", Static).update("TIMER ALERT")
+                self.query_one("#display", Static).update(
+                    f"\n\n{self.alert_message}\n\nPress Enter"
+                )
+                return
+
             value = self.format_time(self.remaining_seconds())
             mode = self.active_timer_label()
 
         self.query_one("#mode", Static).update(mode)
         self.query_one("#display", Static).update(self.big_time(value))
+
+    def alert_is_active(self) -> bool:
+        """Return whether the completion message should remain visible."""
+
+        if not self.alert_message:
+            return False
+        if time.monotonic() < self.alert_until:
+            return True
+        self.clear_alert()
+        return False
+
+    def show_alert(self, message: str) -> None:
+        """Show a short visual and terminal notification."""
+
+        self.alert_message = message
+        self.alert_until = time.monotonic() + 3
+        self.query_one("#panel").add_class("alert")
+        sys.stdout.write("\a")
+        sys.stdout.flush()
+
+    def clear_alert(self) -> None:
+        """Clear the current notification."""
+
+        self.alert_message = ""
+        self.alert_until = 0.0
+        self.query_one("#panel").remove_class("alert")
 
     def active_timer_label(self) -> str:
         """Return the label shown above an active countdown."""
@@ -323,10 +375,13 @@ class TimerScreen(Screen):
             )
             self.state.duration_seconds = phase_minutes * 60
             self.state.started_at = time.monotonic()
+            message = "BREAK START" if self.state.is_break else "WORK START"
+            self.show_alert(message)
         else:
             self.state.duration_seconds = 0
             self.state.started_at = None
             self.state.running = False
+            self.show_alert("TIME'S UP")
 
     @staticmethod
     def format_time(seconds: int) -> str:
